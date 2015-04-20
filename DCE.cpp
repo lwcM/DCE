@@ -13,10 +13,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/ADT/Statistic.h"
+#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/InstIterator.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -30,9 +33,13 @@ STATISTIC(DCEEliminatedCount, "Counts number of instruction removed");
 bool isInstructionCritical(Instruction *I) {
   if(!I->use_empty() || isa<llvm::TerminatorInst>(I))
     return true;
-  if(!I->mayHaveSideEffects())
-    return false;
-  return true;
+  if(isa<DbgInfoIntrinsic>(I))
+	return true;
+  if(isa<LandingPadInst>(I))
+	return true;
+  if(I->mayHaveSideEffects())
+    return true;
+  return false;
 }
 
 namespace {
@@ -42,8 +49,11 @@ namespace {
     DCE() : FunctionPass(ID) {}
 
     bool runOnFunction(Function &F) override {
+		
 		bool changeMade = false;
 		//Mark
+		while(1)
+		{
 		std::vector<Instruction*> WorkList, MarkedList;
       for(Function::iterator BB = F.begin(), FE = F.end(); BB != FE; BB++) {
         for(BasicBlock::iterator DI = BB->begin(), BE = BB->end(); DI != BE; DI++) {
@@ -51,7 +61,7 @@ namespace {
 		  WorkList.push_back(&*Inst);
 		  if(isInstructionCritical(Inst))
 			  MarkedList.push_back(&*Inst);
-		  /*
+		 /* 
 		  printf("%10s %5d %5d %5d", Inst->getOpcodeName(Inst->getOpcode()), Inst->use_empty(), isa<llvm::TerminatorInst>(Inst), Inst->mayHaveSideEffects());
 		  printf("USED ");
 		  for(User::op_iterator OI = Inst->op_begin(); OI != Inst->op_end(); OI++)
@@ -62,8 +72,8 @@ namespace {
 			  Instruction *Used = cast<Instruction>(Op->get());
 			  printf("%10s", Used->getOpcodeName(Used->getOpcode()));
 		  }
-		  printf("\n");
-		  */
+		  printf("\n");*/
+		  
         }
       }
 	  //printf("pushdone\n");
@@ -73,11 +83,11 @@ namespace {
 		for(Instruction::op_iterator Op = I->op_begin(), IE = I->op_end(); Op != IE; Op++){
 			if(isa<Instruction>(Op->get())) {
 				Instruction *defI = cast<Instruction>(Op->get());
-				MarkedList.push_back(&*defI);
+				if(std::find(WorkList.begin(), WorkList.end(), defI) != WorkList.end())
+					MarkedList.push_back(&*defI);
 			}
 		}
 		WorkList.erase(std::remove(WorkList.begin(), WorkList.end(), I), WorkList.end());
-//		printf("%d\n", WorkList.size());
 	  }
 	  //printf("markdone\n");
 	  //Sweep
@@ -87,9 +97,14 @@ namespace {
 		  DCEEliminatedCount++;
 		  changeMade = true;
 	  }
-      return changeMade;
-    }
-  };
+	  if(changeMade == false)
+		  return false;
+	  changeMade = false;
+	}
+      return true;
+
+  }
+};
 }
 
 char DCE::ID = 0;
